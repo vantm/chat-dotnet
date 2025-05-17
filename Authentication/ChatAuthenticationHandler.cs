@@ -12,22 +12,12 @@ public class ChatAuthenticationHandler(
 {
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
-        var authHeader = Request.Headers["Authorization"].ToString();
-        var authHeaderParts = authHeader.Split(' ');
-        if (authHeaderParts is not
-            { Length: 2 })
+        var token = Request.Headers["X-Access-Token"].ToString();
+        if (token is null || token.Length == 0)
         {
-            return Task.FromResult(AuthenticateResult.Fail("Invalid Authorization Header"));
+            return Task.FromResult(AuthenticateResult.Fail("Missing X-Access-Token Header"));
         }
 
-        var scheme = authHeaderParts[0];
-        if (!scheme.Equals("chat", StringComparison.OrdinalIgnoreCase))
-        {
-            return Task.FromResult(AuthenticateResult.Fail("Invalid Authorization Scheme"));
-        }
-
-
-        var token = authHeaderParts[1];
         var (user, error) = authHelper.GetPrinciple(token, Options.SecretKey);
         if (error is not null)
         {
