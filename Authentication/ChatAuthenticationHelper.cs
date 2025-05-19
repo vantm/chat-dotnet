@@ -6,36 +6,42 @@ namespace chat_dotnet.Authentication;
 
 public class ChatAuthenticationHelper(IJwtHelper jwtHelper)
 {
-    public (ClaimsPrincipal? User, string? Error) GetPrinciple(string token, string secretKey)
+    public (ClaimsPrincipal? User, string? SessionId, string? Error) GetPrinciple(string token, string secretKey)
     {
 
         if (!jwtHelper.TryDeserialize(token, secretKey, out var jwtClaims))
         {
-            return (null, "Invalid Token");
+            return (null, null, "Invalid Token");
         }
 
         List<Claim> claims = [];
+        string? sessionId = null;
 
-        foreach (var jwtClaim in jwtClaims)
+        foreach (var (key, value) in jwtClaims)
         {
-            if (jwtClaim.Key == "sub")
+            if (key == "sub")
             {
-                Debug.Assert(jwtClaim.Value is string, "JWT claim sub is string");
-                claims.Add(new Claim(ClaimTypes.NameIdentifier, jwtClaim.Value.ToString()!));
+                Debug.Assert(value is string, "JWT claim sub must be a string");
+                claims.Add(new Claim(ClaimTypes.NameIdentifier, value.ToString()!));
             }
-            else if (jwtClaim.Key == "exp")
+            else if (key == "sid")
             {
-                var expiresAt = DateTimeOffset.FromUnixTimeSeconds(long.Parse(jwtClaim.Value.ToString()!));
+                Debug.Assert(value is string, "JWT claim sid must be a string");
+                sessionId = value.ToString();
+            }
+            else if (key == "exp")
+            {
+                var expiresAt = DateTimeOffset.FromUnixTimeSeconds(long.Parse(value.ToString()!));
                 if (expiresAt < DateTimeOffset.UtcNow)
                 {
-                    return (null, "Token expired");
+                    return (null, null, "Token expired");
                 }
             }
         }
 
         var identity = new ClaimsIdentity(claims, "Chat");
         var user = new ClaimsPrincipal(identity);
-        return (user, null);
+        return (user, sessionId, null);
     }
 }
 

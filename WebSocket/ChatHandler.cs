@@ -33,12 +33,15 @@ public class ChatHandler(ChatManager chat, ChatAuthenticationHelper helper, IMes
         }
 
         var token = message.Payload;
-        var (authenticatedUser, error) = helper.GetPrinciple(token, "dotnet");
+        var (authenticatedUser, sessionId, error) = helper.GetPrinciple(token, "dotnet");
         if (error is not null)
         {
             await SendMessageAsync("unauthenticated", error, cancellationToken);
             return;
         }
+
+
+        // TODO: check session
 
         user = authenticatedUser!;
         await SendMessageAsync("authenticated", "You are authenticated.", cancellationToken);
