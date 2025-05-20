@@ -39,23 +39,43 @@ public class ChatAuthenticationHelper(IJwtHelper jwtHelper, ActorSystem system)
             }
         }
 
-        var loginSessionActorSelection = system.ActorSelection($"//user/login-manager/{sessionId}");
+        var loginManager = system.ActorSelection("//user/login-manager");
+
         try
         {
-            var result = await loginSessionActorSelection.ResolveOne(TimeSpan.FromSeconds(3));
-            if (result.IsNobody())
+            var msg = ("check-session", sessionId!);
+            var doesActorExist = await loginManager.Ask<bool>(msg, TimeSpan.FromSeconds(5));
+            if (!doesActorExist)
             {
                 return (null, "The session is not found");
             }
-
             var identity = new ClaimsIdentity(claims, "Chat");
             var user = new ClaimsPrincipal(identity);
             return (user, null);
         }
-        catch (ActorNotFoundException)
+        catch (AskTimeoutException)
         {
-            return (null, "The session is not found");
+            return (null, "The session is not found (timeout)");
         }
+
+
+        //var loginSessionActorSelection = system.ActorSelection($"//user/login-manager/{sessionId}");
+        //try
+        //{
+        //    var result = await loginSessionActorSelection.ResolveOne(TimeSpan.FromSeconds(3));
+        //    if (result.IsNobody())
+        //    {
+        //        return (null, "The session is not found");
+        //    }
+
+        //    var identity = new ClaimsIdentity(claims, "Chat");
+        //    var user = new ClaimsPrincipal(identity);
+        //    return (user, null);
+        //}
+        //catch (ActorNotFoundException)
+        //{
+        //    return (null, "The session is not found (source: exception)");
+        //}
     }
 }
 

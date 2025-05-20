@@ -38,6 +38,11 @@ builder.Services.AddAkka("chat-system", (akkaConfigurationBuilder, serviceProvid
             loggerConfigBuilder
                 .AddDefaultLogger()
                 .AddLoggerFactory(loggerFactory);
+
+            if (builder.Environment.IsDevelopment())
+            {
+                loggerConfigBuilder.LogLevel = Akka.Event.LogLevel.DebugLevel;
+            }
         })
         .WithSqlPersistence(
             connectionString: builder.Configuration.GetConnectionString("sqlite")!,

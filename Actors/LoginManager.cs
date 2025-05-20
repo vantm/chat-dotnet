@@ -1,5 +1,5 @@
-using System.Diagnostics;
 using Akka.Actor;
+using Akka.Event;
 using chat_dotnet.Messaging;
 using chat_dotnet.Services;
 
@@ -11,15 +11,27 @@ public class LoginManager : ReceiveActor
         Akka.Actor.Props.Create(() => new LoginManager(jwtHelper));
 
     private readonly IJwtHelper _jwtHelper;
+    private readonly ILoggingAdapter _logger = Context.GetLogger();
 
     public LoginManager(IJwtHelper jwtHelper)
     {
         _jwtHelper = jwtHelper;
 
+        Receive<(string Action, string SessionId)>((msg) => msg.Action == "check-session", (msg) =>
+        {
+            var sessionActor = Context.Child(msg.SessionId);
+            if (!sessionActor.IsNobody())
+            {
+                sessionActor.Tell("noop");
+            }
+
+            _logger.Debug("check-session: IsNobody = {0}", sessionActor.IsNobody());
+
+            Sender.Tell(!sessionActor.IsNobody());
+        });
+
         Receive(async (LoginRequest req) =>
         {
-            Debug.Assert(req is not null, "Request must be provided");
-
             var context = Context;
             var sender = Context.Sender;
 
@@ -36,8 +48,8 @@ public class LoginManager : ReceiveActor
                 return;
             }
 
-            var sessionId = $"{userId}-{context.System.Scheduler.Now.ToUnixTimeMilliseconds()}";
-            var sessionActor = context.ActorOf(LoginSession.Props(userId), sessionId);
+            var sessionId = Guid.NewGuid();
+            var sessionActor = context.ActorOf(LoginSession.Props(sessionId, userId), sessionId.ToString());
             var expiresAt = context.System.Scheduler.Now.AddHours(1);
 
             sessionActor.Tell(("start-session", expiresAt));
@@ -46,7 +58,7 @@ public class LoginManager : ReceiveActor
             {
                 ["sub"] = userId,
                 ["exp"] = expiresAt.ToUnixTimeSeconds(),
-                ["sid"] = sessionId
+                ["sid"] = sessionId.ToString()
             };
 
             var accessToken = _jwtHelper.Serialize(claims, "dotnet");
