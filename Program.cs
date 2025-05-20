@@ -1,5 +1,6 @@
 using Akka.Actor;
 using Akka.Hosting;
+using Akka.Persistence.Hosting;
 using Akka.Persistence.Sql.Hosting;
 using chat_dotnet;
 using chat_dotnet.Actors;
@@ -27,8 +28,7 @@ builder.Services.AddSingleton<ChatAuthenticationHelper>();
 builder.Services.AddAkka("chat-system", (akkaConfigurationBuilder, serviceProvider) =>
 {
     akkaConfigurationBuilder
-        .AddPetabridgeCmd(
-        cmd =>
+        .AddPetabridgeCmd(cmd =>
         {
         })
         .ConfigureLoggers((loggerConfigBuilder) =>
@@ -40,7 +40,8 @@ builder.Services.AddAkka("chat-system", (akkaConfigurationBuilder, serviceProvid
         })
         .WithSqlPersistence(
             connectionString: builder.Configuration.GetConnectionString("sqlite")!,
-            ProviderName.SQLite)
+            providerName: ProviderName.SQLiteMS,
+            autoInitialize: true)
         .WithActors((actorSystem, registry) =>
         {
             var chatRoomManager = actorSystem.ActorOf<ChatRoomManager>("chat-room-manager");

@@ -1,40 +1,71 @@
 using Akka.Actor;
+using Akka.Persistence;
+using chat_dotnet.Events;
 using chat_dotnet.Messaging;
 using chat_dotnet.Models;
 
 namespace chat_dotnet.Actors;
 
-public class UserManager : ReceiveActor
+public class UserManager : PersistentActor
 {
     private readonly IList<User> _users = [];
 
-    public UserManager()
+    public override string PersistenceId => "user-manager";
+
+    protected override bool ReceiveRecover(object message)
     {
-        Receive<RegisterRequest>(reg =>
+        switch (message)
         {
-            var (registeredUser, errors) = RegisterUser(reg);
-            var response = registeredUser is not null
-                ? new RegisterResponse(true, registeredUser.Id, null)
-                : new RegisterResponse(false, null, errors);
-
-            Sender.Tell(response);
-        });
-
-        Receive<PasswordVerificationRequest>(req =>
-        {
-            var (userId, password) = req;
-            var user = _users.FirstOrDefault(x => x.Id == userId);
-            var isCorrected = false;
-            if (user is not null)
-            {
-                isCorrected = user.CheckPassword(password);
-            }
-            var response = new PasswordVerificationResponse(isCorrected);
-            Sender.Tell(response);
-        });
+            case UserRegisteredEvent evt:
+                _users.Add(evt.User);
+                return true;
+            default:
+                return false;
+        }
     }
 
-    public (User? Right, string[]? Left) RegisterUser(RegisterRequest reg)
+    protected override bool ReceiveCommand(object message)
+    {
+        switch (message)
+        {
+            case RegisterRequest reg:
+                var (registeredUser, errors) = CreateUser(reg);
+                if (registeredUser != null)
+                {
+                    Persist(new UserRegisteredEvent(registeredUser), evt =>
+                    {
+                        var response = new RegisterResponse(true, registeredUser.Id, null);
+
+                        _users.Add(registeredUser);
+
+                        Sender.Tell(response);
+                    });
+                }
+                else
+                {
+                    var response = new RegisterResponse(false, null, errors);
+                    Sender.Tell(response);
+                }
+                return true;
+
+            case PasswordVerificationRequest req:
+                var (userId, password) = req;
+                var user = _users.FirstOrDefault(x => x.Id == userId);
+                var isCorrected = false;
+                if (user is not null)
+                {
+                    isCorrected = user.CheckPassword(password);
+                }
+                var verificationResponse = new PasswordVerificationResponse(isCorrected);
+                Sender.Tell(verificationResponse);
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
+    public static (User? Right, string[]? Left) CreateUser(RegisterRequest reg)
     {
         ArgumentNullException.ThrowIfNull(reg);
         var (name, password) = reg;
@@ -54,11 +85,7 @@ public class UserManager : ReceiveActor
             return (null, [.. errors]);
         }
 
-
         var user = User.Create(name!, password!);
-
-        _users.Add(user);
-
         return (user, null);
     }
 }
