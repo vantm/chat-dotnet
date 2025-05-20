@@ -6,7 +6,7 @@ using chat_dotnet.Services;
 
 namespace chat_dotnet;
 
-public class ChatHandler(ChatManager chat, ChatAuthenticationHelper helper, IMessageSerializer serializer, ILogger<ChatHandler> logger)
+public class ChatHandler(ChatAuthenticationHelper helper, IMessageSerializer serializer, ILogger<ChatHandler> logger)
 {
     private WebSocket ws = default!;
     private ClaimsPrincipal user = default!;
@@ -33,15 +33,12 @@ public class ChatHandler(ChatManager chat, ChatAuthenticationHelper helper, IMes
         }
 
         var token = message.Payload;
-        var (authenticatedUser, sessionId, error) = helper.GetPrinciple(token, "dotnet");
+        var (authenticatedUser, error) = await helper.ParseUserAsync(token, "dotnet");
         if (error is not null)
         {
             await SendMessageAsync("unauthenticated", error, cancellationToken);
             return;
         }
-
-
-        // TODO: check session
 
         user = authenticatedUser!;
         await SendMessageAsync("authenticated", "You are authenticated.", cancellationToken);

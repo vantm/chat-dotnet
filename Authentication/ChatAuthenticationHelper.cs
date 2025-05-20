@@ -1,17 +1,17 @@
 using System.Diagnostics;
 using System.Security.Claims;
+using Akka.Actor;
 using chat_dotnet.Services;
 
 namespace chat_dotnet.Authentication;
 
-public class ChatAuthenticationHelper(IJwtHelper jwtHelper)
+public class ChatAuthenticationHelper(IJwtHelper jwtHelper, ActorSystem system)
 {
-    public (ClaimsPrincipal? User, string? SessionId, string? Error) GetPrinciple(string token, string secretKey)
+    public async Task<(ClaimsPrincipal? User, string? Error)> ParseUserAsync(string token, string secretKey)
     {
-
         if (!jwtHelper.TryDeserialize(token, secretKey, out var jwtClaims))
         {
-            return (null, null, "Invalid Token");
+            return (null, "Invalid Token");
         }
 
         List<Claim> claims = [];
@@ -34,14 +34,28 @@ public class ChatAuthenticationHelper(IJwtHelper jwtHelper)
                 var expiresAt = DateTimeOffset.FromUnixTimeSeconds(long.Parse(value.ToString()!));
                 if (expiresAt < DateTimeOffset.UtcNow)
                 {
-                    return (null, null, "Token expired");
+                    return (null, "Token expired");
                 }
             }
         }
 
-        var identity = new ClaimsIdentity(claims, "Chat");
-        var user = new ClaimsPrincipal(identity);
-        return (user, sessionId, null);
+        var loginSessionActorSelection = system.ActorSelection($"//user/login-manager/{sessionId}");
+        try
+        {
+            var result = await loginSessionActorSelection.ResolveOne(TimeSpan.FromSeconds(3));
+            if (result.IsNobody())
+            {
+                return (null, "The session is not found");
+            }
+
+            var identity = new ClaimsIdentity(claims, "Chat");
+            var user = new ClaimsPrincipal(identity);
+            return (user, null);
+        }
+        catch (ActorNotFoundException)
+        {
+            return (null, "The session is not found");
+        }
     }
 }
 
