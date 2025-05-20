@@ -1,4 +1,5 @@
 using Akka.Actor;
+using Akka.DependencyInjection;
 using Akka.Hosting;
 using Akka.Persistence.Hosting;
 using Akka.Persistence.Sql.Hosting;
@@ -50,8 +51,10 @@ builder.Services.AddAkka("chat-system", (akkaConfigurationBuilder, serviceProvid
             var userManager = actorSystem.ActorOf<UserManager>("user-manager");
             registry.TryRegister<UserManager>(userManager);
 
-            var jwtHelper = serviceProvider.GetRequiredService<IJwtHelper>();
-            var loginManager = actorSystem.ActorOf(Props.Create<LoginManager>(jwtHelper), "login-manager");
+            var dr = DependencyResolver.For(actorSystem);
+
+            var loginManagerProps = dr.Props<LoginManager>();
+            var loginManager = actorSystem.ActorOf(loginManagerProps, "login-manager");
             registry.TryRegister<LoginManager>(loginManager);
         });
 });

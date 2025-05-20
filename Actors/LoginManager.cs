@@ -7,6 +7,9 @@ namespace chat_dotnet.Actors;
 
 public class LoginManager : ReceiveActor
 {
+    public static Props Props(IJwtHelper jwtHelper) =>
+        Akka.Actor.Props.Create(() => new LoginManager(jwtHelper));
+
     private readonly IJwtHelper _jwtHelper;
 
     public LoginManager(IJwtHelper jwtHelper)
@@ -34,7 +37,7 @@ public class LoginManager : ReceiveActor
             }
 
             var sessionId = $"{userId}-{context.System.Scheduler.Now.ToUnixTimeMilliseconds()}";
-            var sessionActor = context.ActorOf(Props.Create<LoginSession>(userId), sessionId);
+            var sessionActor = context.ActorOf(LoginSession.Props(userId), sessionId);
             var expiresAt = context.System.Scheduler.Now.AddHours(1);
 
             sessionActor.Tell(("start-session", expiresAt));

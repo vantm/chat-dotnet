@@ -4,6 +4,9 @@ namespace chat_dotnet.Actors;
 
 public class LoginSession : ReceiveActor
 {
+    public static Props Props(string userId) =>
+        Akka.Actor.Props.Create(() => new LoginSession(userId));
+
     public string UserId { get; private set; }
     public DateTimeOffset ExpiresAt { get; private set; } = DateTimeOffset.MinValue;
 
