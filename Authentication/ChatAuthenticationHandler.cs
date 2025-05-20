@@ -1,6 +1,7 @@
 using System.Text.Encodings.Web;
 using Akka.Actor;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
 
 namespace chat_dotnet.Authentication;
@@ -13,6 +14,11 @@ public class ChatAuthenticationHandler(
 {
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
+        if (Context.GetEndpoint()?.Metadata?.GetMetadata<IAllowAnonymous>() != null)
+        {
+            return AuthenticateResult.NoResult();
+        }
+
         var token = Request.Headers["X-Access-Token"].ToString();
         if (token is null || token.Length == 0)
         {
