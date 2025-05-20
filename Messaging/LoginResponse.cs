@@ -1,7 +1,7 @@
 namespace chat_dotnet.Messaging;
 
-public record LoginResponse(bool IsSuccess, string? AccessToken, string? Error)
+public record LoginResponse(bool IsSuccess, Guid? SessionId, string? Error)
 {
     public static LoginResponse Fail(string message) => new(false, null, message);
-    public static LoginResponse Succ(string message) => new(true, message, null);
+    public static LoginResponse Succ(Guid id) => new(true, id, null);
 }

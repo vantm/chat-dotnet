@@ -1,79 +1,138 @@
 using System.Text.Json;
+using Akka;
 using Akka.Actor;
 using Akka.Event;
 using Akka.Persistence;
 using chat_dotnet.Events;
-using LogLevel = Akka.Event.LogLevel;
+using chat_dotnet.Services;
 
 namespace chat_dotnet.Actors;
 
-public record SessionState(string UserId, DateTimeOffset ExpiresAt);
+public enum SessionStatus { Active, LoggedOut, Expired }
+public record SessionState(Guid SessionId, string UserId, DateTimeOffset ExpiresAt, SessionStatus Status, DateTimeOffset? LoggedOutAt);
 
 public class LoginSession : ReceivePersistentActor, IWithTimers
 {
-    public static Props Props(Guid sessionId, string userId) =>
-        Akka.Actor.Props.Create(() => new LoginSession(sessionId, userId));
+    public static Props Props(Guid sessionId, string userId, IServiceProvider serviceProvider)
+    {
+        var timeProvider = serviceProvider.GetRequiredService<TimeProvider>();
+        var expiresAt = timeProvider.GetUtcNow().AddHours(1);
+        return Akka.Actor.Props.Create(() => new LoginSession(new(sessionId, userId, expiresAt, SessionStatus.Active, null), serviceProvider));
+    }
 
-    private readonly ILoggingAdapter _logger = Context.GetLogger();
-
-    public SessionState State { get; set; } = new(string.Empty, DateTimeOffset.MinValue);
+    public SessionState State { get; private set; }
     public ITimerScheduler Timers { get; set; } = default!;
 
     public override string PersistenceId { get; }
 
-    public LoginSession(Guid sessionId, string userId)
+    public LoginSession(SessionState state, IServiceProvider serviceProvider)
     {
-        PersistenceId = $"session-{userId}-{sessionId}";
+        State = state;
+        PersistenceId = $"session-{state.UserId}-{state.SessionId}";
 
-        Command<(string Type, DateTimeOffset ExpiresAt)>(
-            command => command.Type == "start-session",
-            command =>
+        var logger = Context.GetLogger();
+
+        Command<string>(str => str == "ready", _ =>
+        {
+            var sender = Sender;
+
+            Persist(new SessionStartedEvent(state.SessionId, state.UserId, state.ExpiresAt), evt =>
             {
-                Persist(new SessionStartedEvent(command.ExpiresAt), evt =>
-                {
-                    State = State with { ExpiresAt = command.ExpiresAt };
-                    Self.Tell("start-timer");
-                    Context.System.EventStream.Publish(evt);
-                });
+                sender.Tell(Done.Instance);
             });
-
-        Command<string>(str => str == "start-timer", _ =>
-        {
-            StartTimeoutTimer();
         });
 
-        Command<string>(str => str == "noop", _ =>
+        Command<string>(str => str == "get-jwt", _ =>
         {
-            _logger.Debug("The command 'noop' invoked");
+            if (State.Status != SessionStatus.Active)
+            {
+                throw new InvalidOperationException("The session must be active");
+            }
+
+            using var scope = serviceProvider.CreateScope();
+            var jwtHelper = scope.ServiceProvider.GetRequiredService<IJwtHelper>();
+            var claims = new Dictionary<string, object>()
+            {
+                {"sub", State.UserId },
+                {"exp", State.ExpiresAt.ToUnixTimeSeconds() },
+                {"sid", State.SessionId.ToString() },
+            };
+            var jwt = jwtHelper.Serialize(claims, "dotnet");
+            Sender.Tell(jwt);
         });
 
-        CommandAsync<string>(str => str == "timeout", _ =>
+        Command<string>(shouldHandle: str => str == "logout", _ =>
         {
-            return Context.Self.GracefulStop(TimeSpan.FromSeconds(30));
+            var loggedOutAt = Context.System.Scheduler.Now;
+            State = State with { Status = SessionStatus.LoggedOut, LoggedOutAt = loggedOutAt };
+
+            var self = Self;
+            var sender = Sender;
+
+            Persist(new SessionLoggedOutEvent(loggedOutAt), evt =>
+            {
+                self.Tell("stop");
+                sender.Tell(Done.Instance);
+            });
         });
 
-        Command<RecoveryCompleted>(_ =>
+        Command<string>(shouldHandle: str => str == "expires", _ =>
         {
-            Self.Tell("start-timer");
+            State = State with { Status = SessionStatus.Expired };
 
-            _logger.Debug("Recover Completed");
+            var self = Self;
+            Persist(new SessionExpiredEvent(), _ =>
+            {
+                self.Tell("stop");
+            });
+        });
+
+        Command<string>(str => str == "stop", _ =>
+        {
+            Self.GracefulStop(TimeSpan.FromSeconds(30));
+        });
+
+        Recover<RecoveryCompleted>(_ =>
+        {
+            logger.Debug("Recover Completed");
+
+            if (State.Status != SessionStatus.Active)
+            {
+                Self.Tell("stop");
+            }
         });
 
         Recover<SessionStartedEvent>(evt =>
         {
-            if (_logger.IsDebugEnabled)
+            logger.Debug("Recover SessionStartedEvent");
+            State = State with
             {
-                _logger.Debug("Recover SessionStartedEvent: {0}", JsonSerializer.Serialize(evt));
-            }
+                Status = SessionStatus.Active,
+                UserId = evt.UserId,
+                SessionId = evt.SessionId,
+                ExpiresAt = evt.ExpiresAt,
+                LoggedOutAt = null
+            };
+        });
 
-            State = State with { ExpiresAt = evt.ExpiresAt };
+        Recover<SessionExpiredEvent>(evt =>
+        {
+            logger.Debug("Recover SessionExpiredEvent");
+            State = State with { Status = SessionStatus.Expired };
+        });
+
+        Recover<SessionLoggedOutEvent>(evt =>
+        {
+            logger.Debug("Recover SessionLoggedOutEvent");
+
+            State = State with { Status = SessionStatus.LoggedOut, LoggedOutAt = evt.LoggedOutAt };
         });
 
         Recover<SnapshotOffer>(snapshot =>
         {
-            if (_logger.IsDebugEnabled)
+            if (logger.IsDebugEnabled)
             {
-                _logger.Debug("Recover SnapshotOffer.Snapshot: {0}", JsonSerializer.Serialize(snapshot.Snapshot));
+                logger.Debug("Recover SnapshotOffer.Snapshot: {0}", JsonSerializer.Serialize(snapshot.Snapshot));
             }
 
             if (snapshot.Snapshot is SessionState state)
@@ -83,7 +142,7 @@ public class LoginSession : ReceivePersistentActor, IWithTimers
         });
     }
 
-    private void StartTimeoutTimer()
+    protected override void PreStart()
     {
         var timerKey = $"{PersistenceId}-timer";
 
@@ -94,10 +153,23 @@ public class LoginSession : ReceivePersistentActor, IWithTimers
 
         var logId = Guid.NewGuid().ToString();
 
-        _logger.Info(
+        var logger = Context.GetLogger();
+
+        logger.Info(
             "Session {0} will be stopped within {1} ({2}).",
             Context.Self.Path.Name, timeout.ToString(), logId);
 
-        Timers.StartSingleTimer(timerKey, "timeout", timeout);
+        Timers.StartSingleTimer(timerKey, "expires", timeout);
+
+        base.PreStart();
+    }
+
+    protected override void PostStop()
+    {
+        var timerKey = $"{PersistenceId}-timer";
+
+        Timers.Cancel(timerKey);
+
+        base.PostStop();
     }
 }

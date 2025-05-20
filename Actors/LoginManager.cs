@@ -1,39 +1,38 @@
+using Akka;
 using Akka.Actor;
 using Akka.Event;
+using Akka.Persistence;
 using chat_dotnet.Messaging;
-using chat_dotnet.Services;
 
 namespace chat_dotnet.Actors;
 
-public class LoginManager : ReceiveActor
+public record NewLoginEvent(Guid SessionId, string UserId);
+
+public class LoginManager : ReceivePersistentActor
 {
-    public static Props Props(IJwtHelper jwtHelper) =>
-        Akka.Actor.Props.Create(() => new LoginManager(jwtHelper));
+    public static Props Props(IServiceProvider serviceProvider) =>
+        Akka.Actor.Props.Create(() => new LoginManager(serviceProvider));
 
-    private readonly IJwtHelper _jwtHelper;
-    private readonly ILoggingAdapter _logger = Context.GetLogger();
+    public override string PersistenceId => "login-manager";
 
-    public LoginManager(IJwtHelper jwtHelper)
+    public LoginManager(IServiceProvider serviceProvider)
     {
-        _jwtHelper = jwtHelper;
 
-        Receive<(string Action, string SessionId)>((msg) => msg.Action == "check-session", (msg) =>
+        Command<(string Action, string SessionId)>(shouldHandle: (msg) => msg.Action == "check-session", (msg) =>
         {
             var sessionActor = Context.Child(msg.SessionId);
-            if (!sessionActor.IsNobody())
-            {
-                sessionActor.Tell("noop");
-            }
+            var logger = Context.GetLogger();
 
-            _logger.Debug("check-session: IsNobody = {0}", sessionActor.IsNobody());
+            logger.Debug("check-session: IsNobody = {0}", sessionActor.IsNobody());
 
             Sender.Tell(!sessionActor.IsNobody());
         });
 
-        Receive(async (LoginRequest req) =>
+        Command<LoginRequest>(async (req) =>
         {
             var context = Context;
             var sender = Context.Sender;
+            var self = Context.Self;
 
             var (userId, password) = req;
 
@@ -49,21 +48,33 @@ public class LoginManager : ReceiveActor
             }
 
             var sessionId = Guid.NewGuid();
-            var sessionActor = context.ActorOf(LoginSession.Props(sessionId, userId), sessionId.ToString());
-            var expiresAt = context.System.Scheduler.Now.AddHours(1);
+            var sessionActor = context.ActorOf(LoginSession.Props(sessionId, userId, serviceProvider), sessionId.ToString());
 
-            sessionActor.Tell(("start-session", expiresAt));
+            _ = await sessionActor.Ask<Done>("ready");
 
-            var claims = new Dictionary<string, object>
+            sender.Tell(LoginResponse.Succ(sessionId));
+            self.Tell(new NewLoginEvent(sessionId, userId));
+        });
+
+        Command<NewLoginEvent>(evt =>
+        {
+            var logger = Context.GetLogger();
+            Persist(evt, x =>
             {
-                ["sub"] = userId,
-                ["exp"] = expiresAt.ToUnixTimeSeconds(),
-                ["sid"] = sessionId.ToString()
-            };
+                logger.Info("NewLoginEvent(sessionId:{0}) had been persisted", x.SessionId);
+            });
+        });
 
-            var accessToken = _jwtHelper.Serialize(claims, "dotnet");
+        Recover<RecoveryCompleted>(_ =>
+        {
+            var logger = Context.GetLogger();
+            logger.Debug("LoginManager recovered");
+        });
 
-            sender.Tell(LoginResponse.Succ(accessToken));
+        Recover<NewLoginEvent>((evt) =>
+        {
+            var (sessionId, userId) = evt;
+            Context.ActorOf(LoginSession.Props(sessionId, userId, serviceProvider), sessionId.ToString());
         });
     }
 }

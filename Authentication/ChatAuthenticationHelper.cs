@@ -27,7 +27,8 @@ public class ChatAuthenticationHelper(IJwtHelper jwtHelper, ActorSystem system)
             else if (key == "sid")
             {
                 Debug.Assert(value is string, "JWT claim sid must be a string");
-                sessionId = value.ToString();
+                sessionId = value.ToString()!;
+                claims.Add(new Claim("sid", sessionId));
             }
             else if (key == "exp")
             {
