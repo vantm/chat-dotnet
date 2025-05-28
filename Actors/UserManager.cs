@@ -8,6 +8,8 @@ namespace chat_dotnet.Actors;
 
 public class UserManager : PersistentActor
 {
+    // I know I know, this is not the best way to store users, but for
+    // simplicity, we will use an in-memory list.
     private readonly IList<User> _users = [];
 
     public override string PersistenceId => "user-manager";
