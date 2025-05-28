@@ -13,37 +13,23 @@ public class ChatModule() : PathBaseRoutingModule("/chat")
     {
         app.MapPost("/rooms", async (CreateRoomRequest request, ClaimsPrincipal user, IActorRegistry registry, CancellationToken cancellationToken) =>
         {
-            var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (string.IsNullOrEmpty(userId))
-            {
-                return Results.Unauthorized();
-            }
-
+            var userId = user.FindFirstValue(ClaimTypes.NameIdentifier)!;
             var chatRoomManager = await registry.GetAsync<ChatRoomManager>(cancellationToken);
             var createRoomRequest = new CreateChatRoomRequest(request.Name, userId);
             var response = await chatRoomManager.Ask<CreateChatRoomResponse>(createRoomRequest, cancellationToken);
-
             return response.IsSuccess
-                ? Results.Ok(new { RoomId = response.RoomId })
-                : Results.BadRequest(new { Error = response.Error });
+                ? Results.Ok(new { response.RoomId })
+                : Results.BadRequest(new { response.Error });
         })
         .RequireAuthorization();
 
         app.MapDelete("/rooms/{roomId}", async (string roomId, ClaimsPrincipal user, IActorRegistry registry, CancellationToken cancellationToken) =>
         {
-            var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (string.IsNullOrEmpty(userId))
-            {
-                return Results.Unauthorized();
-            }
-
+            var userId = user.FindFirstValue(ClaimTypes.NameIdentifier)!;
             var chatRoomManager = await registry.GetAsync<ChatRoomManager>(cancellationToken);
             var closeRoomRequest = new CloseChatRoomRequest(roomId, userId);
             var response = await chatRoomManager.Ask<CloseChatRoomResponse>(closeRoomRequest, cancellationToken);
-
-            return response.IsSuccess
-                ? Results.NoContent()
-                : Results.BadRequest(new { Error = response.Error });
+            return response.IsSuccess ? Results.NoContent() : Results.BadRequest(new { response.Error });
         })
         .RequireAuthorization();
     }
