@@ -9,8 +9,8 @@ namespace chat_dotnet.Actors;
 
 public class ChatRoomManager : ReceivePersistentActor
 {
-    private readonly Dictionary<string, Room> _rooms = new();
-    private readonly Dictionary<string, DateTimeOffset> _closedRooms = new();
+    private readonly Dictionary<string, Room> _rooms = [];
+    private readonly Dictionary<string, DateTimeOffset> _closedRooms = [];
 
     public override string PersistenceId => "chat-room-manager";
 
@@ -31,7 +31,9 @@ public class ChatRoomManager : ReceivePersistentActor
             _rooms.Remove(evt.RoomId);
             _closedRooms[evt.RoomId] = evt.ClosedAt;
         });
-    }    private void HandleCreateChatRoom(CreateChatRoomRequest request)
+    }
+
+    private void HandleCreateChatRoom(CreateChatRoomRequest request)
     {
         var (name, ownerUserId) = request;
         var sender = Sender;
@@ -45,7 +47,7 @@ public class ChatRoomManager : ReceivePersistentActor
             {
                 _rooms[room.Id] = room;
                 sender.Tell(CreateChatRoomResponse.Success(room.Id));
-                Context.GetLogger().Info("Chat room '{0}' created with ID '{1}' by user '{2}'", 
+                Context.GetLogger().Info("Chat room '{0}' created with ID '{1}' by user '{2}'",
                     room.Name, room.Id, room.OwnerUserId);
             });
         }
@@ -58,7 +60,9 @@ public class ChatRoomManager : ReceivePersistentActor
             Context.GetLogger().Error(ex, "Failed to create chat room");
             sender.Tell(CreateChatRoomResponse.Fail("Failed to create chat room"));
         }
-    }    private void HandleCloseChatRoom(CloseChatRoomRequest request)
+    }
+
+    private void HandleCloseChatRoom(CloseChatRoomRequest request)
     {
         var (roomId, userId) = request;
         var sender = Sender;
@@ -89,7 +93,7 @@ public class ChatRoomManager : ReceivePersistentActor
                 _rooms.Remove(roomId);
                 _closedRooms[roomId] = persistedEvent.ClosedAt;
                 sender.Tell(CloseChatRoomResponse.Success());
-                Context.GetLogger().Info("Chat room '{0}' closed by user '{1}' at {2}", 
+                Context.GetLogger().Info("Chat room '{0}' closed by user '{1}' at {2}",
                     roomId, userId, persistedEvent.ClosedAt);
             });
         }
