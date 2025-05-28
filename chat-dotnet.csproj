@@ -1,10 +1,11 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>chat_dotnet</RootNamespace>
+    <UserSecretsId>9020301c-6c08-4c33-aa74-c9f98b8fce73</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
