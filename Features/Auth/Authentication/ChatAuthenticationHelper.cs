@@ -45,8 +45,8 @@ public class ChatAuthenticationHelper(IJwtHelper jwtHelper, ActorSystem system)
         try
         {
             var msg = ("check-session", sessionId!);
-            var doesActorExist = await loginManager.Ask<bool>(msg, TimeSpan.FromSeconds(5));
-            if (!doesActorExist)
+            var actorExists = await loginManager.Ask<bool>(msg, TimeSpan.FromSeconds(5));
+            if (!actorExists)
             {
                 return (null, "The session is not found");
             }
